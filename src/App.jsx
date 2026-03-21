@@ -1338,6 +1338,16 @@ export default function KidsFlashcard() {
   const [quizTotal, setQuizTotal] = useState(0);
   const [quizFeedback, setQuizFeedback] = useState(null); // 'correct', 'incorrect'
 
+  const [wordMastery, setWordMastery] = useState(() => {
+    try {
+      const saved = localStorage.getItem('kidsFlashcardMastery');
+      return saved ? JSON.parse(saved) : {};
+    } catch (error) {
+      console.error('Lỗi khi đọc localStorage mastery:', error);
+      return {};
+    }
+  });
+
   // Lưu trạng thái Đã thuộc vào LocalStorage
   useEffect(() => {
     try {
@@ -1346,6 +1356,15 @@ export default function KidsFlashcard() {
       console.warn('Không thể lưu vào localStorage (có thể do môi trường bị hạn chế):', error);
     }
   }, [learnedWords]);
+
+  // Lưu trạng thái Mastery vào LocalStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('kidsFlashcardMastery', JSON.stringify(wordMastery));
+    } catch (error) {
+      console.warn('Không thể lưu mastery vào localStorage:', error);
+    }
+  }, [wordMastery]);
 
   // --- LỌC DỮ LIỆU ---
   const filteredData = useMemo(() => {
@@ -1518,13 +1537,31 @@ export default function KidsFlashcard() {
   const handleAnswer = (isCorrect) => {
     if (quizFeedback) return; // Chống click đúp
     setQuizTotal(prev => prev + 1);
+    
+    // === CẬP NHẬT MASTERY ===
+    const wordId = currentQuestion.targetWord.id;
+    let newMasteryScore = 0;
+    
     if (isCorrect) {
         setQuizScore(prev => prev + 1);
         setQuizFeedback('correct');
         playAudio("Excellent!"); 
+        newMasteryScore = Math.min(3, (wordMastery[wordId] || 0) + 1);
     } else {
         setQuizFeedback('incorrect');
         playAudio("Oops!");
+        newMasteryScore = Math.max(0, (wordMastery[wordId] || 0) - 1);
+    }
+    
+    setWordMastery(prev => ({ ...prev, [wordId]: newMasteryScore }));
+    
+    // Nếu đạt 3 lần đúng, tự động đánh dấu là Đã thuộc
+    if (newMasteryScore >= 3 && !learnedWords.has(wordId)) {
+        setLearnedWords(prev => {
+            const newSet = new Set(prev);
+            newSet.add(wordId);
+            return newSet;
+        });
     }
     
     setTimeout(() => generateQuestion(), 2500); // Đợi 2.5s để xem kết quả
@@ -1839,6 +1876,15 @@ export default function KidsFlashcard() {
                   {learnedWords.has(currentCard.id) && (
                     <div className="absolute top-6 right-6 text-emerald-500 bg-emerald-50 rounded-full p-1">
                       <CheckCircle2 size={32} />
+                    </div>
+                  )}
+
+                  {/* Hiển thị sao Mastery (đã đúng bao nhiêu lần) */}
+                  {!learnedWords.has(currentCard.id) && (wordMastery[currentCard.id] > 0) && (
+                    <div className="absolute top-16 right-6 flex gap-1 bg-yellow-50 px-2 py-1 rounded-full border border-yellow-200">
+                      {[...Array(wordMastery[currentCard.id])].map((_, i) => (
+                        <Star key={i} size={16} className="text-amber-400 fill-amber-400" />
+                      ))}
                     </div>
                   )}
 
