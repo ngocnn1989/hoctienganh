@@ -1339,6 +1339,9 @@ export default function KidsFlashcard() {
   const [quizFeedback, setQuizFeedback] = useState(null); // 'correct', 'incorrect'
   const [userSpellInput, setUserSpellInput] = useState(''); // Thêm cho luyện chính tả
 
+  const [quizFocus, setQuizFocus] = useState('random'); // 'random' | 'learned'
+  const [spellMistakes, setSpellMistakes] = useState(0);
+
   const [matchState, setMatchState] = useState({
     leftItems: [], rightItems: [], selectedLeft: null, selectedRight: null, matchedPairs: []
   });
@@ -1447,7 +1450,20 @@ export default function KidsFlashcard() {
 
   // --- TẠO CÂU HỎI TRẮC NGHIỆM ---
   const generateQuestion = useCallback(() => {
+    setSpellMistakes(0); // Reset lỗi chính tả cho câu mới
+    
     let sourceData = filteredData.length >= 4 ? filteredData : VOCABULARY_DATA;
+    
+    if (quizFocus === 'learned') {
+        const learnedArr = Array.from(learnedWords);
+        if (learnedArr.length >= 4) {
+             sourceData = VOCABULARY_DATA.filter(w => learnedWords.has(w.id));
+        } else {
+             alert("Bé cần học thuộc ít nhất 4 từ để mở khoá chế độ này nhé! Chuyển về Ngẫu nhiên.");
+             setQuizFocus('random');
+        }
+    }
+    
     if (sourceData.length === 0) sourceData = VOCABULARY_DATA; // Fallback an toàn
 
     const targetWord = sourceData[Math.floor(Math.random() * sourceData.length)];
@@ -1582,7 +1598,7 @@ export default function KidsFlashcard() {
     
     setCurrentQuestion(question);
     setQuizFeedback(null);
-  }, [filteredData, playAudio]);
+  }, [filteredData, playAudio, quizFocus, learnedWords]);
 
   useEffect(() => {
     if (isQuizMode) generateQuestion();
@@ -1621,9 +1637,19 @@ export default function KidsFlashcard() {
   // Xử lý khi chọn đáp án trắc nghiệm
   const handleAnswer = (isCorrect) => {
     if (quizFeedback) return; // Chống click đúp
+    
+    // Logic gõ chính tả cho phép sai 1 lần (2 lần mới phạt)
+    if (!isCorrect && currentQuestion.type === 'spell') {
+        const currentMistakes = spellMistakes + 1;
+        setSpellMistakes(currentMistakes);
+        if (currentMistakes < 2) {
+            playAudio("Oops! Try again!");
+            return; // Dừng lại ở đây, cho phép gõ tiếp
+        }
+    }
+    
     setQuizTotal(prev => prev + 1);
     
-    // === CẬP NHẬT MASTERY ===
     const wordId = currentQuestion.targetWord.id;
     let newMasteryScore = 0;
     
@@ -1632,21 +1658,37 @@ export default function KidsFlashcard() {
         setQuizFeedback('correct');
         playAudio("Excellent!"); 
         newMasteryScore = Math.min(3, (wordMastery[wordId] || 0) + 1);
+        setWordMastery(prev => ({ ...prev, [wordId]: newMasteryScore }));
+        
+        // Gắn Đã thuộc nếu đạt 3 điểm
+        if (newMasteryScore >= 3 && !learnedWords.has(wordId)) {
+            setLearnedWords(prev => {
+                const newSet = new Set(prev);
+                newSet.add(wordId);
+                return newSet;
+            });
+        }
     } else {
         setQuizFeedback('incorrect');
         playAudio("Oops!");
-        newMasteryScore = Math.max(0, (wordMastery[wordId] || 0) - 1);
-    }
-    
-    setWordMastery(prev => ({ ...prev, [wordId]: newMasteryScore }));
-    
-    // Nếu đạt 3 lần đúng, tự động đánh dấu là Đã thuộc
-    if (newMasteryScore >= 3 && !learnedWords.has(wordId)) {
-        setLearnedWords(prev => {
-            const newSet = new Set(prev);
-            newSet.add(wordId);
-            return newSet;
-        });
+        
+        // --- LUẬT PHẠT TƯỚC TỪ ĐÃ THUỘC ---
+        const penaltyTypes = ['listen', 'mcq', 'tf', 'spell'];
+        if (penaltyTypes.includes(currentQuestion.type)) {
+            newMasteryScore = 0; // Trừng phạt nặng: Xóa toàn bộ mastery
+            setWordMastery(prev => ({ ...prev, [wordId]: 0 }));
+            if (learnedWords.has(wordId)) {
+                setLearnedWords(prev => {
+                    const newSet = new Set(prev);
+                    newSet.delete(wordId);
+                    return newSet;
+                });
+            }
+        } else {
+            // Các dạng khác chỉ trừ nhẹ
+            newMasteryScore = Math.max(0, (wordMastery[wordId] || 0) - 1);
+            setWordMastery(prev => ({ ...prev, [wordId]: newMasteryScore }));
+        }
     }
     
     setTimeout(() => generateQuestion(), 2500); // Đợi 2.5s để xem kết quả
@@ -1825,6 +1867,22 @@ export default function KidsFlashcard() {
         
         {isQuizMode ? (
           <div className="w-full max-w-2xl flex flex-col items-center">
+             {/* THANH CHỌN CHẾ ĐỘ TRẮC NGHIỆM */}
+             <div className="w-full bg-indigo-50 rounded-2xl p-2 mb-6 flex gap-2 border-2 border-indigo-100 kid-shadow">
+               <button 
+                 onClick={() => setQuizFocus('random')}
+                 className={`flex-1 py-3 rounded-xl font-bold transition-all text-sm sm:text-base ${quizFocus === 'random' ? 'bg-indigo-500 text-white shadow-md' : 'text-indigo-600 hover:bg-indigo-100'}`}
+               >
+                 Mặc định (Random)
+               </button>
+               <button 
+                 onClick={() => setQuizFocus('learned')}
+                 className={`flex-1 py-3 rounded-xl font-bold transition-all text-sm sm:text-base ${quizFocus === 'learned' ? 'bg-indigo-500 text-white shadow-md' : 'text-indigo-600 hover:bg-indigo-100'}`}
+               >
+                 Kiểm tra từ đã thuộc
+               </button>
+             </div>
+
             <div className="w-full bg-white rounded-[2rem] kid-shadow border-4 border-indigo-100 p-6 sm:p-8 relative min-h-[400px] flex flex-col justify-center overflow-hidden">
               
               <div className="absolute top-4 right-6 font-black text-indigo-600 bg-indigo-50 px-4 py-2 rounded-full border border-indigo-200 z-10 text-sm">
