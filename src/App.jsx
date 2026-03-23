@@ -1337,6 +1337,11 @@ export default function KidsFlashcard() {
   const [quizScore, setQuizScore] = useState(0);
   const [quizTotal, setQuizTotal] = useState(0);
   const [quizFeedback, setQuizFeedback] = useState(null); // 'correct', 'incorrect'
+  const [userSpellInput, setUserSpellInput] = useState(''); // Thêm cho luyện chính tả
+
+  const [matchState, setMatchState] = useState({
+    leftItems: [], rightItems: [], selectedLeft: null, selectedRight: null, matchedPairs: []
+  });
 
   const [wordMastery, setWordMastery] = useState(() => {
     try {
@@ -1446,7 +1451,7 @@ export default function KidsFlashcard() {
     if (sourceData.length === 0) sourceData = VOCABULARY_DATA; // Fallback an toàn
 
     const targetWord = sourceData[Math.floor(Math.random() * sourceData.length)];
-    const types = ['mcq', 'tf', 'listen', 'fill'];
+    const types = ['mcq', 'tf', 'listen', 'fill', 'spell', 'grammar', 'match'];
     const type = types[Math.floor(Math.random() * types.length)];
     
     let question = { type, targetWord, options: [], answer: null, sentence: '', displayedMeaning: '' };
@@ -1479,6 +1484,10 @@ export default function KidsFlashcard() {
         question.options = [targetWord, ...wrongs].sort(() => Math.random() - 0.5);
         question.answer = targetWord.id;
         setTimeout(() => playAudio(targetWord.word), 500); // Tự động đọc
+    } else if (type === 'spell') {
+        question.answer = targetWord.word.toLowerCase();
+        setUserSpellInput('');
+        setTimeout(() => playAudio(targetWord.word), 500);
     } else if (type === 'fill') {
         const regex = new RegExp(`\\b${targetWord.word}\\b`, 'gi');
         if (targetWord.example.match(regex)) {
@@ -1493,6 +1502,80 @@ export default function KidsFlashcard() {
             question.options = [targetWord, ...wrongs].sort(() => Math.random() - 0.5);
             question.answer = targetWord.id;
         }
+    } else if (type === 'grammar') {
+        const grammarWords = ['in', 'on', 'at', 'with', 'to', 'for', 'about', 'can', 'could', 'will', 'would', 'should', 'must'];
+        let foundWord = null;
+        let sentence = '';
+        
+        // Cố tìm trong filteredData một câu có chứa grammar word
+        let attemptWord = targetWord;
+        let attempts = 0;
+        while(attempts < 50) {
+            const exp = attemptWord.example.toLowerCase();
+            const match = grammarWords.find(gw => new RegExp(`\\b${gw}\\b`, 'i').test(exp));
+            if (match) {
+                foundWord = match;
+                sentence = attemptWord.example.replace(new RegExp(`\\b${foundWord}\\b`, 'i'), '______');
+                break;
+            }
+            attemptWord = VOCABULARY_DATA[Math.floor(Math.random() * VOCABULARY_DATA.length)];
+            attempts++;
+        }
+
+        if (foundWord) {
+            question.targetWord = attemptWord;
+            let optionsSet = new Set([foundWord]);
+            while(optionsSet.size < 4) {
+                optionsSet.add(grammarWords[Math.floor(Math.random() * grammarWords.length)]);
+            }
+            question.options = Array.from(optionsSet).map(w => ({ id: w, word: w })).sort(() => Math.random() - 0.5);
+            question.answer = foundWord;
+            question.sentence = sentence;
+        } else {
+            question.type = 'mcq';
+            const wrongs = getWrongWords(3);
+            question.options = [targetWord, ...wrongs].sort(() => Math.random() - 0.5);
+            question.answer = targetWord.id;
+        }
+    } else if (type === 'match') {
+        const getWords = (n) => {
+            let res = [targetWord];
+            let attempts = 0;
+            while(res.length < n && attempts < 100) {
+                let w = VOCABULARY_DATA[Math.floor(Math.random() * VOCABULARY_DATA.length)];
+                if(!res.find(x => x.id === w.id)) res.push(w);
+                attempts++;
+            }
+            return res;
+        };
+        const words = getWords(4);
+        
+        let leftItems = [];
+        let rightItems = [];
+        
+        words.forEach(w => {
+            const ex = w.example;
+            const mid = Math.floor(ex.length / 2);
+            let splitIndex = ex.lastIndexOf(' ', mid);
+            if (splitIndex === -1) splitIndex = ex.indexOf(' ', mid);
+            if (splitIndex === -1) splitIndex = mid;
+            
+            leftItems.push({ id: w.id, text: ex.substring(0, splitIndex).trim() });
+            rightItems.push({ id: w.id, text: ex.substring(splitIndex).trim() });
+        });
+        
+        question.leftItems = leftItems.sort(() => Math.random() - 0.5);
+        question.rightItems = rightItems.sort(() => Math.random() - 0.5);
+        
+        setMatchState({
+            leftItems: question.leftItems,
+            rightItems: question.rightItems,
+            selectedLeft: null,
+            selectedRight: null,
+            matchedPairs: []
+        });
+        
+        question.answer = words; // to track mastery later
     }
     
     setCurrentQuestion(question);
@@ -1584,6 +1667,61 @@ export default function KidsFlashcard() {
         handleNext();
       }, 500);
     }
+  };
+
+  // --- XỬ LÝ NỐI CÂU ---
+  const handleMatchSelect = (side, id) => {
+      if (matchState.matchedPairs.includes(id)) return;
+      
+      let newMatchState = { ...matchState };
+      
+      if (side === 'left') {
+          newMatchState.selectedLeft = newMatchState.selectedLeft === id ? null : id;
+      } else {
+          newMatchState.selectedRight = newMatchState.selectedRight === id ? null : id;
+      }
+      
+      // Check for match
+      if (newMatchState.selectedLeft !== null && newMatchState.selectedRight !== null) {
+          if (newMatchState.selectedLeft === newMatchState.selectedRight) {
+              // Match correct!
+              newMatchState.matchedPairs.push(newMatchState.selectedLeft);
+              const matchedId = newMatchState.selectedLeft;
+              newMatchState.selectedLeft = null;
+              newMatchState.selectedRight = null;
+              
+              if (newMatchState.matchedPairs.length === 4) {
+                  playAudio("Excellent!");
+                  setQuizTotal(prev => prev + 1);
+                  setQuizScore(prev => prev + 1);
+                  setQuizFeedback('correct');
+                  
+                  // Update mastery for all 4 words
+                  currentQuestion.answer.forEach(w => {
+                      setWordMastery(prev => {
+                          const oldScore = prev[w.id] || 0;
+                          const ms = Math.min(3, oldScore + 1);
+                          if (ms >= 3 && !learnedWords.has(w.id)) {
+                              setLearnedWords(lw => { const newSet = new Set(lw); newSet.add(w.id); return newSet; });
+                          }
+                          return { ...prev, [w.id]: ms };
+                      });
+                  });
+                  setTimeout(() => generateQuestion(), 2500);
+              } else {
+                  // Chỉ phát âm từ đúng vừa nối
+                  const matchedWord = currentQuestion.answer.find(w => w.id === matchedId);
+                  if (matchedWord) playAudio(matchedWord.word);
+              }
+          } else {
+              // Match incorrect
+              playAudio("Oops!");
+              newMatchState.selectedLeft = null;
+              newMatchState.selectedRight = null;
+          }
+      }
+      
+      setMatchState(newMatchState);
   };
 
   // --- TIẾN ĐỘ HỌC TẬP ---
@@ -1824,6 +1962,129 @@ export default function KidsFlashcard() {
                            ))}
                         </div>
                       </>
+                    )}
+
+                    {/* --- KIỂU 5: NGỮ PHÁP (GRAMMAR) --- */}
+                    {currentQuestion.type === 'grammar' && (
+                      <>
+                        <div className="text-center mb-8 mt-4">
+                           <h3 className="text-lg sm:text-2xl font-bold text-slate-600 mb-4">Điền giới từ / động từ khuyết thiếu:</h3>
+                           <div className="bg-purple-50 border-2 border-purple-200 p-6 rounded-3xl relative">
+                              <span className="absolute -top-4 -left-4 text-4xl">{currentQuestion.targetWord.icon}</span>
+                              <p className="text-xl sm:text-3xl font-black text-purple-700 leading-snug">
+                                "{currentQuestion.sentence}"
+                              </p>
+                              <p className="text-base sm:text-lg font-medium text-purple-600 mt-4 border-t border-purple-200 pt-4">
+                                Nghĩa: {currentQuestion.targetWord.exampleTranslation}
+                              </p>
+                           </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                           {currentQuestion.options.map((opt, i) => (
+                             <button 
+                               key={opt.id} onClick={() => handleAnswer(opt.id === currentQuestion.answer)}
+                               className="p-3 sm:p-4 rounded-2xl border-4 border-slate-100 font-bold text-lg sm:text-xl text-slate-700 hover:border-purple-400 hover:bg-purple-50 hover:text-purple-700 transition-all active:scale-95 flex items-center gap-3 sm:gap-4 text-left bg-white group uppercase"
+                             >
+                               <span className="w-8 h-8 sm:w-10 sm:h-10 shrink-0 bg-slate-100 text-slate-500 flex items-center justify-center rounded-full font-black text-base sm:text-lg group-hover:bg-purple-200 group-hover:text-purple-700 transition-colors">
+                                 {['A', 'B', 'C', 'D'][i]}
+                               </span>
+                               <span>{opt.word}</span>
+                             </button>
+                           ))}
+                        </div>
+                      </>
+                    )}
+
+                    {/* --- KIỂU 6: LUYỆN CHÍNH TẢ (SPELL) --- */}
+                    {currentQuestion.type === 'spell' && (
+                      <>
+                        <div className="text-center mb-8">
+                           <button 
+                             onClick={() => playAudio(currentQuestion.targetWord.word)}
+                             className="p-6 sm:p-8 bg-sky-500 text-white rounded-full hover:bg-sky-600 active:scale-95 transition-all shadow-xl shadow-sky-200 border-4 border-white mx-auto animate-pulse flex items-center justify-center"
+                           >
+                              <Volume2 size={48} />
+                           </button>
+                           <h3 className="text-xl sm:text-2xl font-bold text-slate-600 mt-6">Nghe và gõ lại tiếng Anh:</h3>
+                           
+                           <div className="mt-8 flex flex-col items-center">
+                              <input 
+                                type="text"
+                                value={userSpellInput}
+                                onChange={(e) => setUserSpellInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if(e.key === 'Enter') handleAnswer(userSpellInput.toLowerCase().trim() === currentQuestion.answer);
+                                }}
+                                autoFocus
+                                className="w-full max-w-sm text-center text-3xl sm:text-4xl font-black text-sky-700 border-b-4 border-sky-300 bg-transparent focus:outline-none focus:border-sky-500 pb-2 mb-6 placeholder:text-sky-200"
+                                placeholder="Gõ vào đây..."
+                                autoComplete="off"
+                                autoCorrect="off"
+                                spellCheck="false"
+                              />
+                              <button 
+                                onClick={() => handleAnswer(userSpellInput.toLowerCase().trim() === currentQuestion.answer)}
+                                className="px-8 py-4 bg-sky-500 text-white rounded-2xl font-black text-xl shadow-lg shadow-sky-200 hover:bg-sky-600 active:scale-95 transition-all"
+                              >
+                                KIỂM TRA
+                              </button>
+                           </div>
+                        </div>
+                      </>
+                    )}
+                    {/* --- KIỂU 7: NỐI CÂU (MATCH) --- */}
+                    {currentQuestion.type === 'match' && (
+                      <div className="w-full">
+                        <div className="text-center mb-6">
+                           <h3 className="text-lg sm:text-2xl font-bold text-slate-600">Nối hai nửa câu bằng cách chọn từng ô:</h3>
+                        </div>
+                        
+                        <div className="flex justify-between gap-2 sm:gap-6 relative">
+                           {/* LEFT CONTENT */}
+                           <div className="flex-1 flex flex-col gap-3">
+                              {matchState.leftItems.map((item) => {
+                                  const isSelected = matchState.selectedLeft === item.id;
+                                  const isMatched = matchState.matchedPairs.includes(item.id);
+                                  return (
+                                    <button 
+                                      key={`left-${item.id}`}
+                                      disabled={isMatched}
+                                      onClick={() => handleMatchSelect('left', item.id)}
+                                      className={`p-3 sm:p-5 text-left rounded-2xl border-4 font-bold text-sm sm:text-base leading-snug transition-all
+                                        ${isMatched ? 'bg-emerald-100 border-emerald-300 text-emerald-600 opacity-60 scale-95' : 
+                                          isSelected ? 'bg-sky-100 border-sky-400 text-sky-700 scale-105 shadow-md z-10' : 
+                                          'bg-white border-slate-100 text-slate-600 hover:border-slate-300'}
+                                      `}
+                                    >
+                                      {item.text}
+                                    </button>
+                                  );
+                              })}
+                           </div>
+
+                           {/* RIGHT CONTENT */}
+                           <div className="flex-1 flex flex-col gap-3">
+                              {matchState.rightItems.map((item) => {
+                                  const isSelected = matchState.selectedRight === item.id;
+                                  const isMatched = matchState.matchedPairs.includes(item.id);
+                                  return (
+                                    <button 
+                                      key={`right-${item.id}`}
+                                      disabled={isMatched}
+                                      onClick={() => handleMatchSelect('right', item.id)}
+                                      className={`p-3 sm:p-5 text-left rounded-2xl border-4 font-bold text-sm sm:text-base leading-snug transition-all
+                                        ${isMatched ? 'bg-emerald-100 border-emerald-300 text-emerald-600 opacity-60 scale-95' : 
+                                          isSelected ? 'bg-sky-100 border-sky-400 text-sky-700 scale-105 shadow-md z-10' : 
+                                          'bg-white border-slate-100 text-slate-600 hover:border-slate-300'}
+                                      `}
+                                    >
+                                      {item.text}
+                                    </button>
+                                  );
+                              })}
+                           </div>
+                        </div>
+                      </div>
                     )}
                  </div>
               )}
