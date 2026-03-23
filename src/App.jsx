@@ -1673,6 +1673,10 @@ export default function KidsFlashcard() {
   const handleMatchSelect = (side, id) => {
       if (matchState.matchedPairs.includes(id)) return;
       
+      // Phát âm toàn bộ câu khi ấn vào mảnh ghép
+      const clickedWord = currentQuestion.answer.find(w => w.id === id);
+      if (clickedWord) playAudio(clickedWord.example);
+      
       let newMatchState = { ...matchState };
       
       if (side === 'left') {
@@ -1686,7 +1690,6 @@ export default function KidsFlashcard() {
           if (newMatchState.selectedLeft === newMatchState.selectedRight) {
               // Match correct!
               newMatchState.matchedPairs.push(newMatchState.selectedLeft);
-              const matchedId = newMatchState.selectedLeft;
               newMatchState.selectedLeft = null;
               newMatchState.selectedRight = null;
               
@@ -1696,7 +1699,7 @@ export default function KidsFlashcard() {
                   setQuizScore(prev => prev + 1);
                   setQuizFeedback('correct');
                   
-                  // Update mastery for all 4 words
+                  // Update mastery cho cả 4 từ
                   currentQuestion.answer.forEach(w => {
                       setWordMastery(prev => {
                           const oldScore = prev[w.id] || 0;
@@ -1708,10 +1711,6 @@ export default function KidsFlashcard() {
                       });
                   });
                   setTimeout(() => generateQuestion(), 2500);
-              } else {
-                  // Chỉ phát âm từ đúng vừa nối
-                  const matchedWord = currentQuestion.answer.find(w => w.id === matchedId);
-                  if (matchedWord) playAudio(matchedWord.word);
               }
           } else {
               // Match incorrect
