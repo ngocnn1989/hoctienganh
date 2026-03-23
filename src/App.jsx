@@ -1474,11 +1474,13 @@ export default function KidsFlashcard() {
         const wrongs = getWrongWords(3);
         question.options = [targetWord, ...wrongs].sort(() => Math.random() - 0.5);
         question.answer = targetWord.id;
+        setTimeout(() => playAudio(targetWord.word), 500); // Tự động đọc
     } else if (type === 'tf') {
         const isTrue = Math.random() > 0.5;
         const wrongWord = getWrongWords(1)[0];
         question.displayedMeaning = isTrue ? targetWord.meaning : wrongWord.meaning;
         question.answer = isTrue;
+        setTimeout(() => playAudio(targetWord.word), 500); // Tự động đọc
     } else if (type === 'listen') {
         const wrongs = getWrongWords(3);
         question.options = [targetWord, ...wrongs].sort(() => Math.random() - 0.5);
@@ -1856,7 +1858,14 @@ export default function KidsFlashcard() {
                     {/* --- KIỂU 1: CHỌN NGHĨA TỪ (MCQ) --- */}
                     {currentQuestion.type === 'mcq' && (
                       <>
-                        <div className="text-center mb-8">
+                        <div className="text-center mb-8 relative">
+                           <button 
+                             onClick={() => playAudio(currentQuestion.targetWord.word)}
+                             className="absolute right-0 sm:right-4 top-0 p-3 bg-sky-100 text-sky-600 rounded-full hover:bg-sky-200 active:scale-95 transition-all shadow-sm"
+                             title="Nghe lại"
+                           >
+                              <Volume2 size={24} />
+                           </button>
                            <span className="text-6xl mb-4 block drop-shadow-sm">{currentQuestion.targetWord.icon}</span>
                            <h3 className="text-lg sm:text-xl font-bold text-slate-500 uppercase tracking-widest">Nghĩa của từ</h3>
                            <h2 className="text-4xl sm:text-5xl font-black text-indigo-600 my-2">"{currentQuestion.targetWord.word}"</h2>
@@ -1881,7 +1890,14 @@ export default function KidsFlashcard() {
                     {/* --- KIỂU 2: ĐÚNG / SAI --- */}
                     {currentQuestion.type === 'tf' && (
                       <>
-                        <div className="text-center mb-10">
+                        <div className="text-center mb-10 relative">
+                           <button 
+                             onClick={() => playAudio(currentQuestion.targetWord.word)}
+                             className="absolute right-0 sm:right-4 top-0 p-3 bg-sky-100 text-sky-600 rounded-full hover:bg-sky-200 active:scale-95 transition-all shadow-sm"
+                             title="Nghe lại"
+                           >
+                              <Volume2 size={24} />
+                           </button>
                            <span className="text-6xl mb-4 block drop-shadow-sm">{currentQuestion.targetWord.icon}</span>
                            <h3 className="text-xl sm:text-2xl font-bold text-slate-600 leading-relaxed">
                              Từ <span className="text-3xl sm:text-4xl font-black text-indigo-600 mx-1 sm:mx-2">"{currentQuestion.targetWord.word}"</span><br/>
